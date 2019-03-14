@@ -1,0 +1,118 @@
+---
+title: "k-mers spectrum analysis of Strep spp"
+author: "Thanh Le Viet"
+date: "14/03/2019"
+output: html_document
+---
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(DiagrammeR)
+library(readr)
+library(purrr)
+library(plotly)
+library(stringr)
+library(dplyr)
+library(highcharter)
+```
+
+# Streptococcus spp genomes
+
+Genomes of the Strep genus were downloaded using the following command:
+```{bash, eval=FALSE}
+ncbi-genome-download  --parallel 8 --section refseq --assembly-level complete,chromosome --format fasta --genus "Streptococcus" bacteria
+```
+
+All genomes were cleaned for:
+
+- Removing plasmid sequences
+- Excluding draft genomes with length < 1,000,000bp
+
+In total, 123 genomes of Strep pneu and 452 genomes of non Strep pneu were prepared for kmc analysis.
+
+
+# Workflow
+
+```{r, echo=FALSE}
+grViz("digraph {
+
+graph [layout = dot, rankdir = TD]
+
+# define the global styles of the nodes. We can override these in box if we wish
+
+node [shape = rectangle, style = filled, fillcolor = Linen]
+
+pneu [label = 'Strep pneu set \n (123 genomes)', shape = circle, fillcolor = Beige, width = 1]
+non_pneu [label = 'Non Strep pneu set \n (452 genomes)', shape = circle, fillcolor = Beige, width = 3]
+kmc1 [label =  'KMC', shape = diamond, size = 2]
+kmc2 [label =  'KMC', shape = diamond, size = 2]
+subtraction [label = 'Subtraction', shape = diamond, size = 2]
+intersection [label= 'Intersection', shape = diamond, size = 2]
+pneu_kmer [label= 'k-mers Strep pneu only', shape = rectangle, size = 2, fillcolor = Wheat]
+non_pneu_kmer [label= 'k-mers Non Strep pneu only', shape = rectangle, size = 2, fillcolor = Wheat]
+intersect [label= 'k-mers Strep intersection', shape = rectangle, size = 2, fillcolor = Wheat]
+
+
+# edge definitions with the node IDs
+edge [arrowsize = 0.5, arrowhead = vee]
+pneu -> kmc1 non_pneu -> kmc2 
+kmc1 -> subtraction
+kmc2 -> subtraction
+kmc1 -> intersection
+kmc2 -> intersection
+subtraction -> pneu_kmer
+subtraction -> non_pneu_kmer
+intersection -> intersect
+}")
+```
+
+A list of k-mer was prepared for counting:
+21,31,33,100-105,110,115,120,125,130,135,140,145,150,155,160,165,170,175,180,185,190,195,200,205,210,220,230,235,240,245,250,255
+
+# k-mers Spectrum Analysis
+
+* blue dots show k-mers of Strep pneu only
+* tomato dots show k-mers of non Strep pneu only
+* green dots show intersected k-mers of Strep
+
+* X-axis is the k-mers depth
+* Y-axis is the frequency of k-mers depth (in log scale)
+
+The plot can be interactively inspected.
+
+```{r, message=FALSE, echo=FALSE, fig.width = 10, fig.height = 8}
+hist_files <- list.files("hist/", "*.hist", full.names = T)
+
+hist_df <- map_df(hist_files, function(x) read_tsv(x, col_names = c("depth", "freq")) %>% mutate(file_name = x)) %>% 
+  mutate(kmc = gsub("hist//|_[0-9]{2,3}.hist", "",file_name))  %>% 
+  mutate(k = str_extract(file_name, "(?<=_)([0-9]{2,3})(?=\\.hist)")) %>% 
+  mutate(color = paste("k", k, "depth", depth, sep = ":"))
+
+plot_ly(hist_df %>% filter(depth > 2), 
+        x = ~depth, 
+        y = ~log(freq),
+        color = ~kmc, 
+        text = ~color,
+        hoverinfo = "text",
+        type = "scatter",
+        alpha = 0.45, 
+        mode = "markers") %>% 
+  layout(xaxis = list(title = "k-mers depth"), 
+         yaxis = list(title = "frequency (log scale)", 
+                      titlefont = list(size=20),
+                      automargin = TRUE))
+```
+
+
+Looking at the plot, interestingly there was a shift pattern of k-mers betweenn Pneu and Non Pneu. The short k-mers (i.e. 21,31,33) were used as reference as they were often used in other k-mer based software for short reads. For the Pneu k-mers, on the X-axis, the frequency of the k-mers depth changed steadly  following a smooth curve until 120. There was a flipping over of change of frequency between the 100s-mers and 200s-mers at the depth 67.
+
+For selecting a suitable k-mer, a 100-mer may be a good start with some options: 
+
+- Pneu sequences:
+
+    + All 100-mer Pneu sequences (Size: 1.8GB)
+    + 100-mer sequences with a depth of 30 (where there was a large difference of frequency between the three k-mer sets) and 120 (highest frequency and highest depth) (Size: 10MB)
+
+- Non Pneu sequences:
+  
+    + All 100-mer Non Pneu sequences (Size: 9GB)
+    + 100-mer sequences with a depth of 156 or 67 (Size: 29MB)
+  
